@@ -6,6 +6,19 @@ def distance(p1, p2):
     """Calculate Euclidean distance between two points."""
     return ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**0.5
 
+def precompute_distance_matrix(coordinations):
+    """Precompute all pairwise distances."""
+    n = len(coordinations)
+    matrix = [[0.0] * n for _ in range(n)]
+    
+    for i in range(n):
+        for j in range(i+1, n):
+            dist = distance(coordinations[i], coordinations[j])
+            matrix[i][j] = dist
+            matrix[j][i] = dist  # Symmetric
+    
+    return matrix
+
 def nearest_neighbor_tsp(coordinations, start_loc=0):
     """
     Solve TSP using nearest neighbor heuristic.
@@ -31,7 +44,7 @@ def nearest_neighbor_tsp(coordinations, start_loc=0):
         
         # Find the closest location
         for i in unvisited:
-            dist = distance(coordinations[i], coordinations[current_loc])
+            dist = distance_matrix[i][current_loc]
             if dist < closest:
                 closest = dist
                 next_loc = i
@@ -44,26 +57,17 @@ def nearest_neighbor_tsp(coordinations, start_loc=0):
         unvisited.remove(next_loc)
     
     # Return to start
-    total_distance += distance(coordinations[current_loc], coordinations[path[0]])
+    total_distance += distance_matrix[current_loc][path[0]]
     path.append(path[0])
     
     return path, total_distance
 
-def calculate_tour_distance(coordinations, path):
-    """
-    Calculate total distance of a tour path.
-    
-    Args:
-        coordinations: List of [x, y] coordinates
-        path: Tour path as list of location indices (includes return to start)
-    
-    Returns:
-        float: Total tour distance
-    """
-    total_distance = 0
+def calculate_tour_distance_fast(path, distance_matrix):
+    """Fast tour distance using precomputed matrix."""
+    total = 0.0
     for i in range(len(path) - 1):
-        total_distance += distance(coordinations[path[i]], coordinations[path[i + 1]])
-    return total_distance
+        total += distance_matrix[path[i]][path[i + 1]]
+    return total
 
 
 def two_opt_swap(path, i, j):
@@ -102,7 +106,7 @@ def two_opt_improve(coordinations, initial_path):
         tuple: (improved_path, improved_distance)
     """
     current_path = initial_path.copy()
-    current_distance = calculate_tour_distance(coordinations, current_path)
+    current_distance = calculate_tour_distance_fast(current_path, distance_matrix)
     improved = True
     
     print("Starting 2-opt improvement...")
@@ -119,7 +123,7 @@ def two_opt_improve(coordinations, initial_path):
             for j in range(i + 1, len(current_path) - 1):
                 # Create new tour with 2-opt swap
                 new_path = two_opt_swap(current_path, i, j)
-                new_distance = calculate_tour_distance(coordinations, new_path)
+                new_distance = calculate_tour_distance_fast(new_path, distance_matrix)
                 
                 # If we found an improvement, keep it
                 if new_distance < current_distance:
@@ -196,10 +200,13 @@ def main():
     
     print(f"Working with {len(coordinations)} locations")
 
-
+    # Precompute distances
+    global distance_matrix
+    distance_matrix = precompute_distance_matrix(coordinations)
+    
     # Step 1: Solve TSP using nearest neighbor heuristic
     print("=== NEAREST NEIGHBOR HEURISTIC ===")
-    current_loc = 50
+    current_loc = 0
     initial_path, initial_distance = nearest_neighbor_tsp(coordinations, current_loc)
     
     print(f"Initial tour path: {initial_path}")

@@ -1,0 +1,1 @@
+## Same as week 1, but check form different starting locations and see which is the best.

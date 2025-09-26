@@ -1,0 +1,304 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+import os
+
+def distance(p1, p2):
+    """Calculate Euclidean distance between two points."""
+    return ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**0.5
+
+def precompute_distance_matrix(coordinations):
+    """Precompute all pairwise distances."""
+    n = len(coordinations)
+    matrix = [[0.0] * n for _ in range(n)]
+    
+    for i in range(n):
+        for j in range(i+1, n):
+            dist = distance(coordinations[i], coordinations[j])
+            matrix[i][j] = dist
+            matrix[j][i] = dist  # Symmetric
+    
+    return matrix
+
+def nearest_neighbor_tsp(coordinations, distance_matrix, start_loc=0):
+    """
+    Solve TSP using nearest neighbor heuristic.
+    
+    Args:
+        coordinations: List of [x, y] coordinates
+        start_loc: Starting location index
+    
+    Returns:
+        tuple: (path, total_distance)
+    """
+    locations = list(range(len(coordinations)))
+    current_loc = start_loc
+    unvisited = locations.copy()
+    unvisited.remove(current_loc)
+    
+    total_distance = 0
+    path = [current_loc]
+    
+    while unvisited:
+        closest = float('inf')
+        next_loc = None
+        
+        # Find the closest location
+        for i in unvisited:
+            dist = distance_matrix[i][current_loc]
+            if dist < closest:
+                closest = dist
+                next_loc = i
+        
+        # Move to the closest location
+        total_distance += closest
+        path.append(next_loc)
+        
+        current_loc = next_loc
+        unvisited.remove(next_loc)
+    
+    # Return to start
+    total_distance += distance_matrix[current_loc][path[0]]
+    path.append(path[0])
+    
+    return path, total_distance
+
+def calculate_tour_distance_fast(path, distance_matrix):
+    """Fast tour distance using precomputed matrix."""
+    total = 0.0
+    for i in range(len(path) - 1):
+        total += distance_matrix[path[i]][path[i + 1]]
+    return total
+
+
+def two_opt_swap(path, i, j):
+    """
+    Perform a 2-opt swap on a tour path.
+    
+    This reverses the order of cities between positions i and j.
+    For example: [0,1,2,3,4,0] with i=1, j=3 becomes [0,3,2,1,4,0]
+    
+    Args:
+        path: Current tour path
+        i, j: Positions to swap between (i < j)
+    
+    Returns:
+        list: New path with 2-opt swap applied
+    """
+    # Create new path: start + reversed middle section + end
+    new_path = path[:i] + path[i:j+1][::-1] + path[j+1:]
+    return new_path
+
+def two_opt_improve(coordinations, initial_path, distance_matrix):
+    """
+    Improve a tour using 2-opt local search.
+    
+    The 2-opt algorithm works by:
+    1. Taking the current best tour
+    2. For every pair of edges, try removing them and reconnecting differently
+    3. If this creates a shorter tour, keep the improvement
+    4. Repeat until no more improvements can be found
+    
+    Args:
+        coordinations: List of [x, y] coordinates
+        initial_path: Starting tour path
+    
+    Returns:
+        tuple: (improved_path, improved_distance)
+    """
+    current_path = initial_path.copy()
+    current_distance = calculate_tour_distance_fast(current_path, distance_matrix)
+    improved = True
+    
+    print("Starting 2-opt improvement...")
+    print(f"Initial distance: {current_distance:.3f}")
+    
+    iteration = 0
+    while improved:
+        improved = False
+        iteration += 1
+        
+        # Try all possible 2-opt swaps
+        # We exclude the last city since it's the same as the first (return to start)
+        for i in range(1, len(current_path) - 2):
+            for j in range(i + 1, len(current_path) - 1):
+                # Create new tour with 2-opt swap
+                new_path = two_opt_swap(current_path, i, j)
+                new_distance = calculate_tour_distance_fast(new_path, distance_matrix)
+                
+                # If we found an improvement, keep it
+                if new_distance < current_distance:
+                    current_path = new_path
+                    current_distance = new_distance
+                    improved = True
+                    print(f"Iteration {iteration}: Found improvement! New distance: {current_distance:.3f}")
+                    break  # Start over with the improved tour
+            
+            if improved:
+                break  # Start over from the beginning
+    
+    print(f"2-opt completed after {iteration} iterations")
+    print(f"Final distance: {current_distance:.3f}")
+    
+    return current_path, current_distance
+
+
+
+def visualize_tour(coordinations, path, total_distance, title_suffix=""):
+    """
+    Visualize the TSP tour.
+    
+    Args:
+        coordinations: List of [x, y] coordinates
+        path: Tour path as list of location indices
+        total_distance: Total tour distance
+    """
+    # Plot all locations
+    for i in range(len(coordinations)):
+        x = coordinations[i][0]
+        y = coordinations[i][1]
+        plt.scatter(x, y, c="k")
+        plt.text(x + 0.02, y + 0.02, str(i), ha="center")
+    
+    # Plot the tour path
+    tour_x = []
+    tour_y = []
+    for i in path:
+        tour_x.append(coordinations[i][0])
+        tour_y.append(coordinations[i][1])
+    plt.plot(tour_x, tour_y, "b-")
+    
+    plt.title("Number of locations: " + str(len(coordinations)) +
+              ", Tour distance: " + str(round(total_distance, 2)) + title_suffix)
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.axis("equal")
+
+def read_coordinates_from_excel(file_path):
+    """Read coordinates from Excel file with columns: name, x, y"""
+    try:
+        df = pd.read_excel(file_path)
+        coordinations = [[row['x'], row['y']] for _, row in df.iterrows()]
+        print(f"Read {len(coordinations)} coordinates from Excel file")
+        return coordinations
+    
+    except Exception as e:
+        print(f"Error reading Excel file: {e}")
+        return None
+    
+
+
+def nearest_unvisited_to(anchor, unvisited, distance_matrix):
+    """Return (node, dist) for the nearest unvisited node to anchor."""
+    best = None
+    best_d = float('inf')
+    for j in unvisited:
+        d = distance_matrix[anchor][j]
+        if d < best_d:
+            best_d = d
+            best = j
+    return best, best_d
+
+def kth_nearest_unvisited(anchor, unvisited, distance_matrix, k=2):
+    """Return (node, dist) for the k-th nearest unvisited to anchor (1-indexed)."""
+    if not unvisited:
+        return None, float('inf')
+    cand = [(distance_matrix[anchor][j], j) for j in unvisited]
+    cand.sort()
+    idx = min(k-1, len(cand)-1)
+    d, node = cand[idx]
+    return node, d
+
+def second_nearest_then_prev_anchor_tsp(coordinations, distance_matrix, start_loc=0):
+    """
+    Heuristic:
+      1) Start at start_loc = A
+      2) Pick C = 2nd-nearest unvisited to A
+      3) While unvisited:
+           - anchor := node at index -2 in the current path (the 'previous neighbor')
+           - pick the nearest unvisited to anchor
+           - append it (travel cost is from last node in path to the chosen node)
+      4) Close the tour
+    """
+    n = len(coordinations)
+    nodes = list(range(n))
+    path = [start_loc]
+    unvisited = set(nodes)
+    unvisited.remove(start_loc)
+
+    total_distance = 0.0
+
+    # Step 2: second-nearest from start
+    if unvisited:
+        nxt, d = kth_nearest_unvisited(start_loc, unvisited, distance_matrix, k=2)
+        total_distance += distance_matrix[start_loc][nxt]
+        path.append(nxt)
+        unvisited.remove(nxt)
+
+    # Step 3+: always pick nearest to the node at index -2
+    while unvisited:
+        anchor = path[-2] if len(path) >= 2 else path[-1]
+        nxt, _ = nearest_unvisited_to(anchor, unvisited, distance_matrix)
+
+        # Move from the *current last node* to nxt
+        total_distance += distance_matrix[path[-1]][nxt]
+        path.append(nxt)
+        unvisited.remove(nxt)
+
+    # Close the loop
+    total_distance += distance_matrix[path[-1]][path[0]]
+    path.append(path[0])
+
+    return path, total_distance
+
+
+def main():
+    """Main function to run the TSP solver."""
+    # Check if Excel file exists
+    excel_file = "OR 4/excel/berlin52.xlsx"
+    
+    if os.path.exists(excel_file):
+        coordinations = read_coordinates_from_excel(excel_file)
+        if coordinations is None:
+            # Fallback to default
+            coordinations = [[565.0, 575.0], [25.0, 185.0], [345.0, 750.0], [945.0, 685.0], [845.0, 655.0], [880.0, 660.0], [25.0, 230.0], [525.0, 1000.0], [580.0, 1175.0], [650.0, 1130.0], [1605.0, 620.0], [1220.0, 580.0], [1465.0, 200.0]]
+    else:
+        # Use example coordinates
+        coordinations = [[565.0, 575.0], [25.0, 185.0], [345.0, 750.0], [945.0, 685.0], [845.0, 655.0], [880.0, 660.0], [25.0, 230.0], [525.0, 1000.0], [580.0, 1175.0], [650.0, 1130.0], [1605.0, 620.0], [1220.0, 580.0], [1465.0, 200.0]]
+    
+    print(f"Working with {len(coordinations)} locations")
+
+    # Precompute distances
+    print("=== PRECOMPUTING DISTANCES ===")
+    distance_matrix = precompute_distance_matrix(coordinations)
+    
+    print("=== 2ND-NEAREST START + PREV-ANCHOR NEAREST HEURISTIC ===")
+    current_loc = 0
+    initial_path, initial_distance = second_nearest_then_prev_anchor_tsp(
+        coordinations, distance_matrix, current_loc
+    )
+
+    
+    # Step 2: Improve the tour using 2-opt
+    print("\n=== 2-OPT IMPROVEMENT ===")
+    improved_path, improved_distance = two_opt_improve(coordinations, initial_path, distance_matrix)
+    
+    print(f"\nFinal tour path: {improved_path}")
+    print(f"Final total distance: {improved_distance:.3f}")
+    print(f"Improvement: {initial_distance - improved_distance:.3f} ({((initial_distance - improved_distance) / initial_distance * 100):.1f}%)")
+    
+    # Step 3: Visualize both tours
+    plt.figure(figsize=(12, 5))
+    
+    # Plot initial tour
+    plt.subplot(1, 2, 1)
+    visualize_tour(coordinations, initial_path, initial_distance, " (Nearest Neighbor)")
+    
+    # Plot improved tour
+    plt.subplot(1, 2, 2)
+    visualize_tour(coordinations, improved_path, improved_distance, " (After 2-opt)")
+    
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    main()

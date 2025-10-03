@@ -207,7 +207,7 @@ def main():
     
     # Step 1: Solve TSP using nearest neighbor heuristic
     print("=== NEAREST NEIGHBOR HEURISTIC ===")
-    current_loc = 0
+    current_loc = 3
     initial_path, initial_distance = nearest_neighbor_tsp(coordinations, distance_matrix, current_loc)
     
     print(f"Initial tour path: {initial_path}")

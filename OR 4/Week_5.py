@@ -58,67 +58,6 @@ def multi_route_nearest_neighbor(coords, K=4, depot_idx=0):
 
     return routes
 
-
-import pandas as pd
-from pathlib import Path
-import matplotlib.pyplot as plt
-
-INPUT_XLSX = "OR 4/excel/newspaper problem instance.xlsx"
-OUTPUT_XLSX = "solution.xlsx"
-K = 4
-
-def read_instance(path):
-    df = pd.read_excel(path)
-    names = df["location"].astype(str).tolist()
-    coords = list(zip(df["xcoord"].astype(float), df["ycoord"].astype(float)))
-    return names, coords
-
-def manhattan(a, b):
-    return abs(a[0]-b[0]) + abs(a[1]-b[1])
-
-def export_solution_excel(routes, out_path):
-    rows = []
-    for k, r in enumerate(routes, start=1):
-        # r = [depot, c1, c2, ...]  -> schrijf GEEN depot weg
-        for seq, cust_idx in enumerate(r[1:], start=1):
-            rows.append([k, seq, cust_idx])  # Customer number = index uit input
-    pd.DataFrame(rows, columns=["Newspaper boy","Sequence number","Customer number"]).to_excel(out_path, index=False)
-
-def multi_route_nearest_neighbor(coords, K=4, depot_idx=0):
-    """
-    Idee:
-    - We hebben K routes, elk start bij het depot.
-    - In iedere stap: voor elke route zoek je de dichtstbijzijnde ONBEZOCHTE klant vanaf het LAATSTE punt van die route.
-      Dat levert tot K kandidaten op. Kies daarvan de globaal dichtstbijzijnde en voeg die toe.
-    - Herhaal tot alle klanten zijn toegewezen.
-    """
-    n = len(coords)
-    routes = [[depot_idx] for _ in range(K)]
-    unvisited = set(range(n)); unvisited.remove(depot_idx)
-
-    while unvisited:
-        best = None  # (dist, route_k, customer_c)
-        for k in range(K):
-            tail = routes[k][-1]
-            # dichtstbijzijnde klant voor route k
-            closest_c, closest_d = None, float("inf")
-            for c in unvisited:
-                d = manhattan(coords[tail], coords[c])
-                if d < closest_d:
-                    closest_c, closest_d = c, d
-            # bewaar kandidaat van deze route
-            if closest_c is not None:
-                cand = (closest_d, k, closest_c)
-                if best is None or cand[0] < best[0]:
-                    best = cand
-
-        # voeg globaal dichtstbijzijnde kandidaat toe
-        _, k, c = best
-        routes[k].append(c)
-        unvisited.remove(c)
-
-    return routes
-
 def visualize_routes(names, coords, routes, depot_idx=0, title="Routes", use_manhattan=True):
     """
     Plot routes with optional Manhattan (L-shaped) routing.
@@ -179,12 +118,64 @@ def visualize_routes(names, coords, routes, depot_idx=0, title="Routes", use_man
     plt.tight_layout()
     plt.show()
 
+def route_distance(route, coords):
+    """Bereken totale Manhattan afstand van een route."""
+    total = 0
+    for i in range(len(route) - 1):
+        total += manhattan(coords[route[i]], coords[route[i+1]])
+    return total
+
+def two_opt_single_route(route, coords, depot_idx=0):
+    """
+    Voer 2-opt uit op één route.
+    De depot (eerste punt) blijft vast.
+    """
+    improved = True
+    best_route = route[:]
+    
+    while improved:
+        improved = False
+        best_dist = route_distance(best_route, coords)
+        
+        # Probeer alle mogelijke segment-omdraaiingen
+        for i in range(1, len(best_route) - 1):
+            for j in range(i + 1, len(best_route)):
+                # Maak nieuwe route door segment [i:j+1] om te draaien
+                new_route = best_route[:i] + best_route[i:j+1][::-1] + best_route[j+1:]
+                new_dist = route_distance(new_route, coords)
+                
+                if new_dist < best_dist:
+                    best_route = new_route
+                    best_dist = new_dist
+                    improved = True
+                    break
+            if improved:
+                break
+    
+    return best_route
+
+def two_opt_all_routes(routes, coords, depot_idx=0):
+    """Pas 2-opt toe op alle routes."""
+    improved_routes = []
+    for route in routes:
+        improved = two_opt_single_route(route, coords, depot_idx)
+        improved_routes.append(improved)
+    return improved_routes
 
 if __name__ == "__main__":
     assert Path(INPUT_XLSX).exists(), f"Bestand niet gevonden: {INPUT_XLSX}"
     names, coords = read_instance(INPUT_XLSX)
 
     routes = multi_route_nearest_neighbor(coords, K=K, depot_idx=0)
+    routes = two_opt_all_routes(routes, coords, depot_idx=0)
+
+    total_distance = sum(route_distance(route, coords) for route in routes)
+    print(f"\nTotale afstand van alle routes: {total_distance:.2f}")
+
+    for k, route in enumerate(routes, start=1):
+        dist = route_distance(route, coords)
+        print(f"  Route {k}: {dist:.2f} (met {len(route)-1} klanten)")
+
     export_solution_excel(routes, OUTPUT_XLSX)
     print(f"Gereed. Oplossing weggeschreven naar: {OUTPUT_XLSX}")
 

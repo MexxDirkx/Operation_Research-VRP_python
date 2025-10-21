@@ -180,5 +180,5 @@ if __name__ == "__main__":
     print(f"Gereed. Oplossing weggeschreven naar: {OUTPUT_XLSX}")
 
     visualize_routes(names, coords, routes, depot_idx=0, 
-                    title="Multi-route Nearest Neighbor (Manhattan Routes)", 
+                    title="Multi-route Nearest Neighbor + 2-Opt per route (Manhattan Routes)", 
                     use_manhattan=True)

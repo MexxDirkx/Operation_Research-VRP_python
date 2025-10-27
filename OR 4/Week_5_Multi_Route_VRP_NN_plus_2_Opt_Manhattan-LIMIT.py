@@ -23,69 +23,49 @@ def export_solution_excel(routes, out_path):
             rows.append([k, seq, cust_idx])  # Customer number = index uit input
     pd.DataFrame(rows, columns=["Newspaper boy","Sequence number","Customer number"]).to_excel(out_path, index=False)
 
-
-### NEW FUNCTIONS FOR QUADRANT-BASED ROUTING + REORDERING + 2-OPT ###
-def build_quadrant_routes(coords, depot_idx=0, split_x=280, split_y=275):
+def multi_route_nearest_neighbor(coords, K=4, depot_idx=0, capacity=30):
     """
-    Deel alle klanten in op 4 kwadranten t.o.v. (split_x, split_y).
-
-    Let op: volgorde binnen elk kwadrant is nog niet slim (gewoon willekeurig),
-    we optimaliseren die daarna met nearest-neighbor-achtig en 2-opt.
+    Idee:
+    - We hebben K routes, elk start bij het depot.
+    - In iedere stap: voor elke route zoek je de dichtstbijzijnde ONBEZOCHTE klant vanaf het LAATSTE punt van die route.
+      Dat levert tot K kandidaten op. Kies daarvan de globaal dichtstbijzijnde en voeg die toe.
+    - Herhaal tot alle klanten zijn toegewezen.
     """
-    q_routes = [[] for _ in range(4)]
+    n = len(coords)
+    routes = [[depot_idx] for _ in range(K)]
+    unvisited = set(range(n)); unvisited.remove(depot_idx)
 
-    for idx, (x, y) in enumerate(coords):
-        if idx == depot_idx:
-            continue
-        if x <= split_x and y >= split_y:
-            q_routes[0].append(idx)  # Q1
-        elif x <= split_x and y < split_y:
-            q_routes[1].append(idx)  # Q2
-        elif x > split_x and y >= split_y:
-            q_routes[2].append(idx)  # Q3
+    while unvisited:
+        best = None  # (dist, route_k, customer_c)
+        for k in range(K):
+            tail = routes[k][-1]
+            # dichtstbijzijnde klant voor route k
+            closest_c, closest_d = None, float("inf")
+            for c in unvisited:
+                d = manhattan(coords[tail], coords[c])
+                if d < closest_d:
+                    closest_c, closest_d = c, d
+            # bewaar kandidaat van deze route
+            if closest_c is not None:
+                cand = (closest_d, k, closest_c)
+                if best is None or cand[0] < best[0]:
+                    best = cand
+
+        # voeg globaal dichtstbijzijnde kandidaat toe
+        _, k, c = best
+        if len(routes[k]) - 1 < capacity:  # -1 omdat depot niet telt
+            routes[k].append(c)
+            unvisited.remove(c) 
         else:
-            q_routes[3].append(idx)  # Q4
-
-    # prepend depot to each route (each boy starts at depot)
-    routes = []
-    for group in q_routes:
-        routes.append([depot_idx] + group)
+            continue
+        
+            
+    
+        
+            
+        
 
     return routes
-
-def reorder_route_nearest_neighbor(route, coords):
-    """
-    Neem een enkele route zoals [depot, c1, c2, ...]
-    en herordent de klanten (behalve depot) met een simpele greedy nearest-neighbor,
-    beginnend vanaf het depot.
-    """
-    if len(route) <= 2:
-        return route[:]  # 0 of 1 klant, niets te doen
-
-    depot = route[0]
-    remaining = route[1:]  # klanten
-    ordered = [depot]
-
-    current = depot
-    while remaining:
-        # pak dichtstbijzijnde
-        best_i = None
-        best_d = float("inf")
-        for i, cust in enumerate(remaining):
-            d = manhattan(coords[current], coords[cust])
-            if d < best_d:
-                best_d = d
-                best_i = i
-        nxt = remaining.pop(best_i)
-        ordered.append(nxt)
-        current = nxt
-
-    return ordered
-
-def reorder_all_routes_nearest_neighbor(routes, coords):
-    return [reorder_route_nearest_neighbor(r, coords) for r in routes]
-### END NEW FUNCTIONS ###
-
 
 def visualize_routes(names, coords, routes, depot_idx=0, title="Routes", use_manhattan=True):
     """
@@ -194,17 +174,19 @@ def two_opt_all_routes(routes, coords, depot_idx=0):
 
 
 
+
+
+
+
+
+
+
 if __name__ == "__main__":
     assert Path(INPUT_XLSX).exists(), f"Bestand niet gevonden: {INPUT_XLSX}"
     names, coords = read_instance(INPUT_XLSX)
 
-    # 1. Maak kwadrantenroutes op basis
-    routes = build_quadrant_routes(coords, depot_idx=0, split_x=280, split_y=275)
 
-    # 2. Herorden met nearest-neighbor binnen elk kwadrant
-    routes = reorder_all_routes_nearest_neighbor(routes, coords)
-
-    # 3. Pas 2-opt toe op elke route
+    routes = multi_route_nearest_neighbor(coords, K=K, depot_idx=0, capacity=30)
     routes = two_opt_all_routes(routes, coords, depot_idx=0)
 
     total_distance = sum(route_distance(route, coords) for route in routes)

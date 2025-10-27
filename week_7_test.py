@@ -1,6 +1,8 @@
 import pandas as pd
 from pathlib import Path
 import matplotlib.pyplot as plt
+import random
+import math
 
 INPUT_XLSX = "OR 4/excel/newspaper problem instance.xlsx"
 OUTPUT_XLSX = "solution.xlsx"
@@ -191,7 +193,124 @@ def two_opt_all_routes(routes, coords, depot_idx=0):
         improved_routes.append(improved)
     return improved_routes
 
+def two_opt_swap(path, i, j):
+    """
+    Perform a 2-opt swap on a tour path.
+    
+    This reverses the order of cities between positions i and j.
+    For example: [0,1,2,3,4,0] with i=1, j=3 becomes [0,3,2,1,4,0]
+    
+    Args:
+        path: Current tour path
+        i, j: Positions to swap between (i < j)
+    
+    Returns:
+        list: New path with 2-opt swap applied
+    """
+    # Create new path: start + reversed middle section + end
+    new_path = path[:i] + path[i:j+1][::-1] + path[j+1:]
+    return new_path
+def get_neighbor(route, distance_matrix):
+    """
+    Generate a neighbor solution using various neighborhood operations.
+    Returns the new tour and the change in distance.
+    """
+    neighbor = route.copy()
+    operation = random.choice(['swap', 'two_opt', 'insert'])
+    
+    if operation == 'swap':
+        # Swap two random cities (excluding start/end which are the same)
+        i = random.randint(1, len(neighbor) - 2)
+        j = random.randint(1, len(neighbor) - 2)
+        neighbor[i], neighbor[j] = neighbor[j], neighbor[i]
+    
+    elif operation == 'two_opt':
+        # Random 2-opt move
+        i = random.randint(1, len(neighbor) - 3)
+        j = random.randint(i + 1, len(neighbor) - 2)
+        neighbor = two_opt_swap(neighbor, i, j)
+    
+    elif operation == 'insert':
+        # Remove a city and insert it elsewhere
+        if len(neighbor) > 3:  # Need at least 3 cities for insertion
+            remove_idx = random.randint(1, len(neighbor) - 2)
+            city = neighbor.pop(remove_idx)
+            insert_idx = random.randint(1, len(neighbor) - 1)
+            neighbor.insert(insert_idx, city)
+    
+    return neighbor
 
+def simulated_annealing(initial_tour, route_distance, initial_temp=500000, cooling_rate=0.6, min_temp=0.1):
+    """
+    Improve a tour using simulated annealing.
+    
+    Args:
+        initial_tour: Starting tour path
+        distance_matrix: Precomputed distance matrix
+        initial_temp: Starting temperature
+        cooling_rate: Temperature reduction factor (0 < cooling_rate < 1)
+        min_temp: Minimum temperature to stop
+    
+    Returns:
+        tuple: (best_tour, best_distance, temperatures, distances)
+    """
+    current_tour = initial_tour.copy()
+    current_distance = route_distance(current_tour)
+    
+    best_tour = current_tour.copy()
+    best_distance = current_distance
+    
+    temperature = initial_temp
+    iteration = 0
+    
+    # For tracking progress
+    temperatures = []
+    distances = []
+    
+    print("Starting simulated annealing...")
+    print(f"Initial distance: {current_distance:.3f}")
+    print(f"Initial temperature: {temperature}")
+    
+    while temperature > min_temp:
+        iteration += 1
+        
+        # Generate neighbor
+        neighbor_tour = get_neighbor(current_tour, route_distance(current_distance))
+        neighbor_distance = route_distance(neighbor_tour)
+        
+        # Calculate change in distance
+        delta = neighbor_distance - current_distance
+        
+        # Accept or reject the neighbor
+        if delta < 0:  # Better solution
+            current_tour = neighbor_tour
+            current_distance = neighbor_distance
+            
+            # Check if it's the best so far
+            if current_distance < best_distance:
+                best_tour = current_tour.copy()
+                best_distance = current_distance
+                print(f"Iteration {iteration}: New best distance: {best_distance:.3f}")
+        
+        else:  # Worse solution - accept with probability
+            probability = math.exp(-delta / temperature)
+            if random.random() < probability:
+                current_tour = neighbor_tour
+                current_distance = neighbor_distance
+        
+        # Cool down
+        temperature *= cooling_rate
+        
+        # Track progress every 100 iterations
+        if iteration % 100 == 0:
+            temperatures.append(temperature)
+            distances.append(best_distance)
+            print(f"Iteration {iteration}: Temperature: {temperature:.3f}, Best distance: {best_distance:.3f}")
+    
+    print(f"Simulated annealing completed after {iteration} iterations")
+    print(f"Final best distance: {best_distance:.3f}")
+    
+    return best_tour, best_distance, temperatures, distances
 
 
 if __name__ == "__main__":
@@ -206,6 +325,19 @@ if __name__ == "__main__":
 
     # 3. Pas 2-opt toe op elke route
     routes = two_opt_all_routes(routes, coords, depot_idx=0)
+    
+    # 4 Pas Simulated Annealing toe op elke route
+    improved_routes = []
+    
+    for k in range(K):
+        routes[k], route_distance[k,coords], temps, dists = simulated_annealing(
+            initial_tour=routes[k],
+            route_distance=lambda r: route_distance(k, coords),
+            initial_temp=500000,
+            cooling_rate=0.6,
+            min_temp=0.1
+        )
+        improved_routes.append(best_tour)
 
     total_distance = sum(route_distance(route, coords) for route in routes)
     print(f"\nTotale afstand van alle routes: {total_distance:.2f}")
@@ -220,3 +352,4 @@ if __name__ == "__main__":
     visualize_routes(names, coords, routes, depot_idx=0, 
                     title="Multi-route Nearest Neighbor + 2-Opt per route (Manhattan Routes)", 
                     use_manhattan=True)
+

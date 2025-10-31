@@ -34,30 +34,40 @@ def multi_route_nearest_neighbor(coords, K=4, depot_idx=0, capacity=30):
     n = len(coords)
     routes = [[depot_idx] for _ in range(K)]
     unvisited = set(range(n)); unvisited.remove(depot_idx)
-
+    
     while unvisited:
         best = None  # (dist, route_k, customer_c)
         for k in range(K):
+            # Skip routes that are at capacity
+            if len(routes[k]) - 1 >= capacity:  # -1 because depot doesn't count
+                continue
+                
             tail = routes[k][-1]
-            # dichtstbijzijnde klant voor route k
+            # Find closest customer for route k
             closest_c, closest_d = None, float("inf")
             for c in unvisited:
                 d = manhattan(coords[tail], coords[c])
                 if d < closest_d:
                     closest_c, closest_d = c, d
-            # bewaar kandidaat van deze route
+                    
+            # Save candidate from this route
             if closest_c is not None:
                 cand = (closest_d, k, closest_c)
                 if best is None or cand[0] < best[0]:
                     best = cand
-
-        # voeg globaal dichtstbijzijnde kandidaat toe
+        
+        if best is None:
+            print("Warning: Some customers could not be assigned - routes at capacity")
+            break
+            
+        # Add globally closest candidate
         _, k, c = best
-        if len(routes[k]) - 1 < capacity:  # -1 omdat depot niet telt
-            routes[k].append(c)
-            unvisited.remove(c) 
-        else:
-            continue
+        routes[k].append(c)
+        unvisited.remove(c)
+
+    return routes
+        
+            
         
             
     
@@ -186,7 +196,7 @@ if __name__ == "__main__":
     names, coords = read_instance(INPUT_XLSX)
 
 
-    routes = multi_route_nearest_neighbor(coords, K=K, depot_idx=0, capacity=30)
+    routes = multi_route_nearest_neighbor(coords, K=K, depot_idx=0, capacity=31)
     routes = two_opt_all_routes(routes, coords, depot_idx=0)
 
     total_distance = sum(route_distance(route, coords) for route in routes)

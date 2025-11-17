@@ -4,11 +4,12 @@ import pandas as pd
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-INPUT_XLSX = "OR 4/excel/newspaper problem instance.xlsx"
+INPUT_XLSX = "OR 4/excel/locations.xlsx"
 OUTPUT_XLSX = "solution.xlsx"
 K = 4
 random.seed(46)
 
+# Reading instance & manhattan distance
 def read_instance(path):
     df = pd.read_excel(path)
     names = df["location"].astype(str).tolist()
@@ -18,23 +19,59 @@ def read_instance(path):
 def manhattan(a, b):
     return abs(a[0]-b[0]) + abs(a[1]-b[1])
 
-def export_solution_excel(routes, out_path):
-    rows = []
-    for k, r in enumerate(routes, start=1):
-        # r = [depot, c1, c2, ...]  -> schrijf GEEN depot weg
-        for seq, cust_idx in enumerate(r[1:], start=1):
-            rows.append([k, seq, cust_idx])  # Customer number = index uit input
-    pd.DataFrame(rows, columns=["Newspaper boy","Sequence number","Customer number"]).to_excel(out_path, index=False)
+# Centroid and Geometric Median
+def centroid(coords):
+    """Return arithmetic mean (centroid) of a list of (x,y) coords."""
+    xs = [p[0] for p in coords]
+    ys = [p[1] for p in coords]
+    return (sum(xs) / len(xs), sum(ys) / len(ys))
 
+def geometric_median(coords, eps=1e-5, max_iter=1000):
+    """Compute geometric median using Weiszfeld's algorithm.
 
-### FUNCTIONS FOR QUADRANT-BASED ROUTING + REORDERING + 2-OPT ###
-def build_quadrant_routes(coords, depot_idx=0, split_x=280, split_y=250):
+    Returns a point (x,y) that minimises sum of Euclidean distances to coords.
+    """
+    # start at centroid
+    x, y = centroid(coords)
+    for _ in range(max_iter):
+        num_x = 0.0
+        num_y = 0.0
+        denom = 0.0
+        for (xi, yi) in coords:
+            dx = x - xi
+            dy = y - yi
+            dist = math.hypot(dx, dy)
+            # if current estimate is exactly on a data point, that's the median
+            if dist < eps:
+                return (xi, yi)
+            w = 1.0 / dist
+            num_x += xi * w
+            num_y += yi * w
+            denom += w
+        new_x = num_x / denom
+        new_y = num_y / denom
+        move = math.hypot(new_x - x, new_y - y)
+        x, y = new_x, new_y
+        if move < eps:
+            break
+    return (x, y)
+
+# Quadrant & nearest-neighbor functions
+def build_quadrant_routes(coords, depot_idx=0, split_x=None, split_y=None):
     """
     Deel alle klanten in op 4 kwadranten t.o.v. (split_x, split_y).
 
     Let op: volgorde binnen elk kwadrant is nog niet slim (gewoon willekeurig),
     we optimaliseren die daarna met nearest-neighbor-achtig en 2-opt.
     """
+    # If no split point provided, use centroid of coordinates
+    if split_x is None or split_y is None:
+        cx, cy = centroid(coords)
+        if split_x is None:
+            split_x = cx
+        if split_y is None:
+            split_y = cy
+
     q_routes = [[] for _ in range(4)]
 
     for idx, (x, y) in enumerate(coords):
@@ -87,69 +124,8 @@ def reorder_route_nearest_neighbor(route, coords):
 
 def reorder_all_routes_nearest_neighbor(routes, coords):
     return [reorder_route_nearest_neighbor(r, coords) for r in routes]
-### END FUNCTIONS FOR QUADRANT-BASED ROUTING + REORDERING + 2-OPT ###
 
-
-def visualize_routes(names, coords, routes, depot_idx=0, title="Routes", use_manhattan=True):
-    """
-    Plot routes with optional Manhattan (L-shaped) routing.
-    
-    Args:
-        names: List of location names
-        coords: List of (x, y) coordinates
-        routes: List of routes, each route is a list of indices
-        depot_idx: Index of the depot location
-        title: Plot title
-        use_manhattan: If True, draw L-shaped routes; if False, draw straight lines
-    """
-    plt.figure(figsize=(10,8))
-
-    # plot customers
-    xs = [p[0] for p in coords]
-    ys = [p[1] for p in coords]
-    plt.scatter(xs, ys, s=20, zorder=2, color='lightgray')
-    for i, (x, y) in enumerate(coords):
-        plt.text(x+0.02, y+0.02, str(i), fontsize=8)
-
-    # highlight depot
-    dx, dy = coords[depot_idx]
-    plt.scatter([dx], [dy], s=120, edgecolor="k", facecolor="gold", zorder=3)
-    plt.text(dx+0.05, dy+0.05, f"Depot ({depot_idx})", fontsize=9, weight="bold")
-
-    # draw each route
-    colors = plt.cm.tab10(range(K))
-    for k, r in enumerate(routes, start=1):
-        color = colors[k-1]
-        
-        # Plot customer points on this route
-        xs_r = [coords[i][0] for i in r]
-        ys_r = [coords[i][1] for i in r]
-        plt.scatter(xs_r, ys_r, s=60, color=color, zorder=4, edgecolor='white', linewidth=1)
-        
-        # Draw connections between consecutive points
-        for i in range(len(r) - 1):
-            x1, y1 = coords[r[i]]
-            x2, y2 = coords[r[i+1]]
-            
-            if use_manhattan:
-                # Draw L-shaped route (Manhattan style)
-                # Choose horizontal-then-vertical (you could also alternate or use a heuristic)
-                plt.plot([x1, x2], [y1, y1], color=color, linewidth=2, alpha=0.7, zorder=1)
-                plt.plot([x2, x2], [y1, y2], color=color, linewidth=2, alpha=0.7, zorder=1, 
-                        label=f"Boy {k}" if i == 0 else "")
-            else:
-                # Draw straight line
-                plt.plot([x1, x2], [y1, y2], color=color, linewidth=2, alpha=0.7, zorder=1,
-                        label=f"Boy {k}" if i == 0 else "")
-
-    plt.title(title)
-    plt.axis("equal")
-    plt.xlabel("x"); plt.ylabel("y")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-
+# Two-opt functions
 def route_distance(route, coords):
     """Bereken totale Manhattan afstand van een route."""
     total = 0
@@ -194,8 +170,7 @@ def two_opt_all_routes(routes, coords, depot_idx=0):
         improved_routes.append(improved)
     return improved_routes
 
-
-### Simulated annealing functions ###
+# Simulated Annealing functions
 def sa_single_route(route, coords, depot_idx=0,
                     T0=100.0, alpha=0.995, iters=5000, min_T=1e-3):
     """
@@ -271,26 +246,110 @@ def sa_all_routes(routes, coords, depot_idx=0,
             )
         )
     return improved
-### END Simulated annealing functions ###
 
+# Visualization and export functions
+def visualize_routes(names, coords, routes, depot_idx=0, title="Routes", use_manhattan=True):
+    """
+    Plot routes with optional Manhattan (L-shaped) routing.
+    
+    Args:
+        names: List of location names
+        coords: List of (x, y) coordinates
+        routes: List of routes, each route is a list of indices
+        depot_idx: Index of the depot location
+        title: Plot title
+        use_manhattan: If True, draw L-shaped routes; if False, draw straight lines
+    """
+    plt.figure(figsize=(10,8))
+
+    # plot customers
+    xs = [p[0] for p in coords]
+    ys = [p[1] for p in coords]
+    plt.scatter(xs, ys, s=20, zorder=2, color='lightgray')
+    for i, (x, y) in enumerate(coords):
+        plt.text(x+0.02, y+0.02, str(i), fontsize=8)
+
+    # highlight depot
+    dx, dy = coords[depot_idx]
+    plt.scatter([dx], [dy], s=120, edgecolor="k", facecolor="gold", zorder=3)
+    plt.text(dx+0.05, dy+0.05, f"Depot ({depot_idx})", fontsize=9, weight="bold")
+
+    # draw each route
+    colors = plt.cm.tab10(range(K))
+    for k, r in enumerate(routes, start=1):
+        color = colors[k-1]
+        
+        # Plot customer points on this route
+        xs_r = [coords[i][0] for i in r]
+        ys_r = [coords[i][1] for i in r]
+        plt.scatter(xs_r, ys_r, s=60, color=color, zorder=4, edgecolor='white', linewidth=1)
+        
+        # Draw connections between consecutive points
+        for i in range(len(r) - 1):
+            x1, y1 = coords[r[i]]
+            x2, y2 = coords[r[i+1]]
+            
+            if use_manhattan:
+                # Draw L-shaped route (Manhattan style)
+                # Choose horizontal-then-vertical (you could also alternate or use a heuristic)
+                plt.plot([x1, x2], [y1, y1], color=color, linewidth=2, alpha=0.7, zorder=1)
+                plt.plot([x2, x2], [y1, y2], color=color, linewidth=2, alpha=0.7, zorder=1, 
+                        label=f"Boy {k}" if i == 0 else "")
+            else:
+                # Draw straight line
+                plt.plot([x1, x2], [y1, y2], color=color, linewidth=2, alpha=0.7, zorder=1,
+                        label=f"Boy {k}" if i == 0 else "")
+
+    plt.title(title)
+    plt.axis("equal")
+    plt.xlabel("x"); plt.ylabel("y")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+def export_solution_excel(routes, out_path):
+    rows = []
+    for k, r in enumerate(routes, start=1):
+        # r = [depot, c1, c2, ...]  -> schrijf GEEN depot weg
+        for seq, cust_idx in enumerate(r[1:], start=1):
+            rows.append([k, seq, cust_idx])  # Customer number = index uit input
+    pd.DataFrame(rows, columns=["Newspaper boy","Sequence number","Customer number"]).to_excel(out_path, index=False)
+
+
+# Main procedure
 if __name__ == "__main__":
     assert Path(INPUT_XLSX).exists(), f"Bestand niet gevonden: {INPUT_XLSX}"
     names, coords = read_instance(INPUT_XLSX)
 
-    # 1. Maak kwadrantenroutes op basis
-    routes = build_quadrant_routes(coords, depot_idx=0, split_x=280, split_y=275)
+    # Choose how to pick the split point / starting location.
+    # "centroid" (arithmetic mean) / "geometric_median"
+    start_method = "centroid"
+
+    if start_method == "centroid":
+        sx, sy = centroid(coords)
+    elif start_method == "geometric_median":
+        sx, sy = geometric_median(coords)
+    else:
+        raise ValueError(f"Unknown start_method: {start_method}")
+
+    depot_idx = 0
+    print(f"Start method: {start_method}, split at ({sx:.2f}, {sy:.2f}), depot index: {depot_idx}")
+
+    # 1. Maak kwadrantenroutes op basis van de berekende split-waarden
+    routes = build_quadrant_routes(coords, depot_idx=depot_idx, split_x=sx, split_y=sy)
 
     # 2. Herorden met nearest-neighbor binnen elk kwadrant
     routes = reorder_all_routes_nearest_neighbor(routes, coords)
 
-    # 2.5 Pas 2-opt toe op elke route
-    routes = two_opt_all_routes(routes, coords, depot_idx=0)
+    # 3. Pas 2-opt toe op elke route
+    routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)
 
-    # 3. Pas simulated annealing toe op elke route
-    routes = sa_all_routes(routes, coords, depot_idx=0, T0=1e3, alpha=0.995, iters=5000, min_T=1e-3)
+    # 4. Pas simulated annealing toe op elke route
+    routes = sa_all_routes(routes, coords, depot_idx=depot_idx, T0=1e4, alpha=0.995, iters=5000, min_T=1e-3)
 
-    # 4. Pas 2-opt toe op elke route
-    routes = two_opt_all_routes(routes, coords, depot_idx=0)
+    # 5. Pas 2-opt toe op elke route
+    routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)
 
     total_distance = sum(route_distance(route, coords) for route in routes)
     print(f"\nTotale afstand van alle routes: {total_distance:.2f}")
@@ -302,4 +361,4 @@ if __name__ == "__main__":
     export_solution_excel(routes, OUTPUT_XLSX)
     print(f"Gereed. Oplossing weggeschreven naar: {OUTPUT_XLSX}")
 
-    visualize_routes(names, coords, routes, depot_idx=0, title="Multi-route Nearest Neighbor + 2-Opt per route (Manhattan Routes)", use_manhattan=True)
+    visualize_routes(names, coords, routes, depot_idx=depot_idx, title="Multi-route Nearest Neighbor + 2-Opt per route (Manhattan Routes)", use_manhattan=True)

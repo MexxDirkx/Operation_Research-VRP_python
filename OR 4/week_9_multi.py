@@ -399,12 +399,12 @@ if __name__ == "__main__":
     routes = SA_between_all_routes(routes, coords, depot_idx=0,
     T0=100,          
     alpha=0.99,      
-    iters=500,       
+    iters=5000,       
     min_T=1e-2)  
     
     # 3 Pas simulated annealing toe op elke route   
         # 3. Pas simulated annealing toe op elke route
-    routes = sa_all_routes(routes, coords, depot_idx=0, T0=1e3, alpha=0.995, iters=5000, min_T=1e-3)
+    
 
     # 4. Pas 2-opt toe op elke route
     routes = two_opt_all_routes(routes, coords, depot_idx=0)

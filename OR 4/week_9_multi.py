@@ -177,13 +177,13 @@ def SA_between_all_routes(routes, coords, depot_idx=0,
     """
 
     # Zorg dat we de originele routes niet verpesten
-    routes = copy.deepcopy(routes)
+    routes = routes
 
     # Huidige totale kost
     def total_cost(rts):
         return sum(route_distance(r, coords) for r in rts)
 
-    curr_routes = copy.deepcopy(routes)
+    curr_routes = routes
     curr_cost = total_cost(curr_routes)
 
     best_routes = [r[:] for r in curr_routes]
@@ -237,7 +237,7 @@ def SA_between_all_routes(routes, coords, depot_idx=0,
             # -----------------------------
             # 4. Bouw volledige nieuwe oplossing
             # -----------------------------
-            new_routes = copy.deepcopy(curr_routes)
+            new_routes = curr_routes
             new_routes[r1] = newA
             new_routes[r2] = newB
 
@@ -254,7 +254,7 @@ def SA_between_all_routes(routes, coords, depot_idx=0,
                 # verbeterde globale oplossing?
                 if curr_cost < best_cost:
                     best_cost = curr_cost
-                    best_routes = copy.deepcopy(curr_routes)
+                    best_routes = curr_routes
 
         T *= alpha
 

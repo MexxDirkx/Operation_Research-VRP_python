@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-INPUT_XLSX = "OR 4/excel/locations.xlsx"
+INPUT_XLSX = "OR 4/excel/newspaper problem instance.xlsx"
 OUTPUT_XLSX = "solution.xlsx"
 K = 4
 random.seed(46)
@@ -346,7 +346,7 @@ if __name__ == "__main__":
     routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)
 
     # 4. Pas simulated annealing toe op elke route
-    routes = sa_all_routes(routes, coords, depot_idx=depot_idx, T0=1e4, alpha=0.995, iters=5000, min_T=1e-3)
+    routes = sa_all_routes(routes, coords, depot_idx=depot_idx, T0=1e3, alpha=0.995, iters=5000, min_T=1e-3)
 
     # 5. Pas 2-opt toe op elke route
     routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)

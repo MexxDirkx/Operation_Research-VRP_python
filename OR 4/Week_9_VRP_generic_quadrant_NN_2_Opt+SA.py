@@ -354,6 +354,7 @@ if __name__ == "__main__":
     total_distance = sum(route_distance(route, coords) for route in routes)
     print(f"\nTotale afstand van alle routes: {total_distance:.2f}")
 
+
     for k, route in enumerate(routes, start=1):
         dist = route_distance(route, coords)
         print(f"  Route {k}: {dist:.2f} (met {len(route)-1} klanten)")

@@ -28,14 +28,58 @@ def export_solution_excel(routes, out_path):
     pd.DataFrame(rows, columns=["Newspaper boy","Sequence number","Customer number"]).to_excel(out_path, index=False)
 
 
-### FUNCTIONS FOR QUADRANT-BASED ROUTING + REORDERING + 2-OPT ###
-def build_quadrant_routes(coords, depot_idx=0, split_x=280, split_y=250):
+def centroid(coords):
+    """Return arithmetic mean (centroid) of a list of (x,y) coords."""
+    xs = [p[0] for p in coords]
+    ys = [p[1] for p in coords]
+    return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+def geometric_median(coords, eps=1e-5, max_iter=1000):
+    """Compute geometric median using Weiszfeld's algorithm.
+
+    Returns a point (x,y) that minimises sum of Euclidean distances to coords.
+    """
+    # start at centroid
+    x, y = centroid(coords)
+    for _ in range(max_iter):
+        num_x = 0.0
+        num_y = 0.0
+        denom = 0.0
+        for (xi, yi) in coords:
+            dx = x - xi
+            dy = y - yi
+            dist = math.hypot(dx, dy)
+            # if current estimate is exactly on a data point, that's the median
+            if dist < eps:
+                return (xi, yi)
+            w = 1.0 / dist
+            num_x += xi * w
+            num_y += yi * w
+            denom += w
+        new_x = num_x / denom
+        new_y = num_y / denom
+        move = math.hypot(new_x - x, new_y - y)
+        x, y = new_x, new_y
+        if move < eps:
+            break
+    return (x, y)
+
+# Quadrant & nearest-neighbor functions
+def build_quadrant_routes(coords, depot_idx=0, split_x=None, split_y=None):
     """
     Deel alle klanten in op 4 kwadranten t.o.v. (split_x, split_y).
 
     Let op: volgorde binnen elk kwadrant is nog niet slim (gewoon willekeurig),
     we optimaliseren die daarna met nearest-neighbor-achtig en 2-opt.
     """
+    # If no split point provided, use centroid of coordinates
+    if split_x is None or split_y is None:
+        cx, cy = centroid(coords)
+        if split_x is None:
+            split_x = cx
+        if split_y is None:
+            split_y = cy
+
     q_routes = [[] for _ in range(4)]
 
     for idx, (x, y) in enumerate(coords):
@@ -56,6 +100,7 @@ def build_quadrant_routes(coords, depot_idx=0, split_x=280, split_y=250):
         routes.append([depot_idx] + group)
 
     return routes
+
 
 def reorder_route_nearest_neighbor(route, coords):
     """
@@ -387,27 +432,37 @@ if __name__ == "__main__":
     assert Path(INPUT_XLSX).exists(), f"Bestand niet gevonden: {INPUT_XLSX}"
     names, coords = read_instance(INPUT_XLSX)
 
-    # 1. Maak kwadrantenroutes op basis
-    routes = build_quadrant_routes(coords, depot_idx=0, split_x=280, split_y=275)
+    # Choose how to pick the split point / starting location.
+    # "centroid" (arithmetic mean) / "geometric_median"
+    start_method = "centroid"
+
+    if start_method == "centroid":
+        sx, sy = centroid(coords)
+    elif start_method == "geometric_median":
+        sx, sy = geometric_median(coords)
+    else:
+        raise ValueError(f"Unknown start_method: {start_method}")
+
+    depot_idx = 0
+    print(f"Start method: {start_method}, split at ({sx:.2f}, {sy:.2f}), depot index: {depot_idx}")
+
+    # 1. Maak kwadrantenroutes op basis van de berekende split-waarden
+    routes = build_quadrant_routes(coords, depot_idx=depot_idx, split_x=sx, split_y=sy)
 
     # 2. Herorden met nearest-neighbor binnen elk kwadrant
     routes = reorder_all_routes_nearest_neighbor(routes, coords)
 
-    # 2.5 Pas 2-opt toe op elke route
-    routes = two_opt_all_routes(routes, coords, depot_idx=0)
+    # 3. Pas 2-opt toe op elke route
+    routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)
     
-    routes = SA_between_all_routes(routes, coords, depot_idx=0,
-    T0=100,          
-    alpha=0.99,      
-    iters=5000,       
-    min_T=1e-2)  
-    
-    # 3 Pas simulated annealing toe op elke route   
-        # 3. Pas simulated annealing toe op elke route
+    # 4 Pas simulated annealing toe tussen en over alle routes
+    routes = SA_between_all_routes(routes, coords, depot_idx=depot_idx, T0=100, alpha=0.999, iters=5000, min_T=1e-2)
+
+  
     
 
-    # 4. Pas 2-opt toe op elke route
-    routes = two_opt_all_routes(routes, coords, depot_idx=0)
+    # 5. Pas 2-opt toe op elke route
+    routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)
 
     total_distance = sum(route_distance(route, coords) for route in routes)
     print(f"\nTotale afstand van alle routes: {total_distance:.2f}")
@@ -419,4 +474,4 @@ if __name__ == "__main__":
     export_solution_excel(routes, OUTPUT_XLSX)
     print(f"Gereed. Oplossing weggeschreven naar: {OUTPUT_XLSX}")
 
-    visualize_routes(names, coords, routes, depot_idx=0, title="Multi-route Nearest Neighbor + 2-Opt per route (Manhattan Routes)", use_manhattan=True)
+    visualize_routes(names, coords, routes, depot_idx=depot_idx, title="Multi-route Nearest Neighbor + 2-Opt per route (Manhattan Routes)", use_manhattan=True)

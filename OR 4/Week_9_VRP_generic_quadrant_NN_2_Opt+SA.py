@@ -317,49 +317,131 @@ def export_solution_excel(routes, out_path):
     pd.DataFrame(rows, columns=["Newspaper boy","Sequence number","Customer number"]).to_excel(out_path, index=False)
 
 
+def evaluate_split(coords, depot_idx, split_x, split_y):
+    """
+    Run the full pipeline for a given split point (split_x, split_y).
+
+    Returns:
+        routes        : list of routes
+        max_len       : max route distance over the 4 routes
+        total_len     : sum of all route distances (just for info)
+        route_lengths : list of 4 distances
+    """
+    # 1. Quadrant assignment
+    routes = build_quadrant_routes(coords, depot_idx=depot_idx,
+                                   split_x=split_x, split_y=split_y)
+
+    # 2. Nearest neighbor within each quadrant
+    routes = reorder_all_routes_nearest_neighbor(routes, coords)
+
+    # 3. 2-opt
+    routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)
+
+    # 4. Simulated annealing
+    routes = sa_all_routes(
+        routes, coords, depot_idx=depot_idx,
+        T0=1e3, alpha=0.995, iters=5000, min_T=1e-3
+    )
+
+    # 5. Final 2-opt
+    routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)
+
+    # Distances
+    route_lengths = [route_distance(r, coords) for r in routes]
+    max_len = max(route_lengths)
+    total_len = sum(route_lengths)
+
+    return routes, max_len, total_len, route_lengths
+
 # Main procedure
 if __name__ == "__main__":
     assert Path(INPUT_XLSX).exists(), f"Bestand niet gevonden: {INPUT_XLSX}"
     names, coords = read_instance(INPUT_XLSX)
 
-    # Choose how to pick the split point / starting location.
+    # Choose how to pick the base split point / starting location.
     # "centroid" (arithmetic mean) / "geometric_median"
     start_method = "centroid"
 
     if start_method == "centroid":
-        sx, sy = centroid(coords)
+        base_sx, base_sy = centroid(coords)
     elif start_method == "geometric_median":
-        sx, sy = geometric_median(coords)
+        base_sx, base_sy = geometric_median(coords)
     else:
         raise ValueError(f"Unknown start_method: {start_method}")
 
     depot_idx = 0
-    print(f"Start method: {start_method}, split at ({sx:.2f}, {sy:.2f}), depot index: {depot_idx}")
 
-    # 1. Maak kwadrantenroutes op basis van de berekende split-waarden
-    routes = build_quadrant_routes(coords, depot_idx=depot_idx, split_x=sx, split_y=sy)
+    # Determine a step size for "around" points (tunable!)
+    xs = [c[0] for c in coords]
+    ys = [c[1] for c in coords]
+    range_x = max(xs) - min(xs)
+    range_y = max(ys) - min(ys)
+    # small step relative to the instance size
+    step = 0.2 * min(range_x, range_y) if min(range_x, range_y) > 0 else 1.0
 
-    # 2. Herorden met nearest-neighbor binnen elk kwadrant
-    routes = reorder_all_routes_nearest_neighbor(routes, coords)
+    # 10 candidate split points: center + 9 around it
+    # You can tweak this pattern however you like.
+    offsets = [
+        (0.0, 0.0),          # center
+        ( step, 0.0),        # right
+        (-step, 0.0),        # left
+        (0.0,  step),        # up
+        (0.0, -step),        # down
+        ( step,  step),      # up-right
+        ( step, -step),      # down-right
+        (-step,  step),      # up-left
+        (-step, -step),      # down-left
+        (2*step, 0.0),       # a bit further right (10th point)
+    ]
 
-    # 3. Pas 2-opt toe op elke route
-    routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)
+    candidate_centers = [
+        (base_sx + dx, base_sy + dy) for (dx, dy) in offsets
+    ]
 
-    # 4. Pas simulated annealing toe op elke route
-    routes = sa_all_routes(routes, coords, depot_idx=depot_idx, T0=1e3, alpha=0.995, iters=5000, min_T=1e-3)
+    print(f"Base start method: {start_method}, base split at "
+          f"({base_sx:.2f}, {base_sy:.2f}), depot index: {depot_idx}")
+    print("Trying candidate split points:")
 
-    # 5. Pas 2-opt toe op elke route
-    routes = two_opt_all_routes(routes, coords, depot_idx=depot_idx)
+    best_routes = None
+    best_center = None
+    best_max_len = float("inf")
+    best_total_len = None
+    best_lengths = None
 
-    total_distance = sum(route_distance(route, coords) for route in routes)
-    print(f"\nTotale afstand van alle routes: {total_distance:.2f}")
+    for idx, (sx, sy) in enumerate(candidate_centers, start=1):
+        print(f"\nCandidate {idx}: split at ({sx:.2f}, {sy:.2f})")
 
+        routes, max_len, total_len, route_lengths = evaluate_split(
+            coords, depot_idx, sx, sy
+        )
 
-    for k, route in enumerate(routes, start=1):
-        dist = route_distance(route, coords)
+        print(f"  Route lengths: {', '.join(f'{d:.2f}' for d in route_lengths)}")
+        print(f"  Max route length: {max_len:.2f}")
+        print(f"  Total distance:   {total_len:.2f}")
+
+        # Our objective: minimize the maximum route length
+        if max_len < best_max_len:
+            best_max_len = max_len
+            best_routes = routes
+            best_center = (sx, sy)
+            best_total_len = total_len
+            best_lengths = route_lengths
+            print("  -> New best solution w.r.t. max route length")
+
+    print("\n=== Best solution over all candidate split points ===")
+    print(f"Best split point: ({best_center[0]:.2f}, {best_center[1]:.2f})")
+    print(f"Best max route length: {best_max_len:.2f}")
+    print(f"Best total distance:   {best_total_len:.2f}")
+
+    for k, (dist, route) in enumerate(zip(best_lengths, best_routes), start=1):
         print(f"  Route {k}: {dist:.2f} (met {len(route)-1} klanten)")
 
-    export_solution_excel(routes, OUTPUT_XLSX)
-    print(f"Gereed. Oplossing weggeschreven naar: {OUTPUT_XLSX}")
+    # Export and visualize the best solution
+    export_solution_excel(best_routes, OUTPUT_XLSX)
+    print(f"\nGereed. Oplossing weggeschreven naar: {OUTPUT_XLSX}")
 
-    visualize_routes(names, coords, routes, depot_idx=depot_idx, title="Multi-route Nearest Neighbor + 2-Opt per route (Manhattan Routes)", use_manhattan=True)
+    visualize_routes(
+        names, coords, best_routes, depot_idx=depot_idx,
+        title="Best split point (minimizing max route length)",
+        use_manhattan=True
+    )

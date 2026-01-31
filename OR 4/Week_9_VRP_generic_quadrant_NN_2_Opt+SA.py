@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-INPUT_XLSX = "OR 4/excel/newspaper problem instance.xlsx"
+INPUT_XLSX = "excel/newspaper problem instance.xlsx"
 OUTPUT_XLSX = "solution.xlsx"
 K = 4
 random.seed(46)
